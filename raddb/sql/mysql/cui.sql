@@ -1,3 +1,6 @@
+#
+# Table structure for table 'cui'
+#
 CREATE TABLE `cui` (
   `clientipaddress` varchar(15) NOT NULL default '',
   `callingstationid` varchar(50) NOT NULL default '',
