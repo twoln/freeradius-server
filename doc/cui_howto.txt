@@ -1,0 +1,89 @@
+This extension introduces support for Chargeable-User-Identity (CUI) attribute 
+as defined in RFC 4372. 
+
+Author: Maja Gorecka-Wolniewicz, Nicholas Copernicus University, Torun, Poland
+        mgw@umk.pl
+Contributors: Stefan Winter, Alan DeKok
+
+The CUI attribute is meant to support roaming scenarios where
+the user is accessing the network at one location (Service Provider - SP)
+while authenticated by a RADIUS server at another institution (Identity
+Provider - IdP). CUI provides means for the SP to request the IdP 
+to return a unique, persistent, opaque user identifier.
+
+As defined in RFC 4372, CUI request is sent as a NULL value of CUI attribute 
+inside the Access-Request packet. CUI response should be sent as the CUI
+value inside the Access-Accept.
+
+This extension has the following functionality:
+
+The SP side (*requesting* CUI):
+- add the CUI NULL attribute to Access-Request proxied from the local NAS
+  to the IdP
+- receive the CUI value from the IdP and store it in the local database
+- update Accounting-Request packets sent by NAS by adding the appropriate CUI
+  attribute.
+
+The IdP side (*returning* CUI):
+- respond to the CUI request by generating the CUI value
+- provide means to ignore CUI request if Access-Request packets do not
+  contain the NAS Identifier attribute
+- provide a fully customisable way of generating the CUI value.
+
+While CUI support has been added for roaming it is also useful for local
+accounting.
+
+Installation
+~~~~~~~~~~~~
+The CUI *requesting* and CUI *returning* sides are implemented and
+described separately. Most likely you want to run both, so just follow
+the instructions of both sections.
+
+##  *requesting* CUI ##################################################
+
+* Setup a MySQL database by creating (or using) a database of your choice and
+  create an additional table cui. The schema is located in sql/mysql/cui.sql
+
+* Enter the necessary details into modules/cui
+  Things you need to modify are: 
+    server - typically this will be localhost;
+    login - mysql user allowed to modify the tables
+    password - password for this user
+    radius_db - database name you wish to use
+
+* Modify the the main configuration file "sites-availabe/default"
+  Search for CUI. There are four sections where CUI is mentioned.
+  Follow the instructions for *requesting* the CUI.
+
+## End *requesting* CUI  ##############################################
+#############################################################
+
+## *returning* CUI #################################################
+
+* Modify the the main configuration file "sites-available/default"
+  Search for CUI. There are four sections where CUI is mentioned.
+  Follow the instructions for *returning* the CUI.
+  The cui_hash_key is used to safeguard the CUI from dictionary attacks
+  and should be set to some "random" string.
+
+* Modify "sites-availabe/inner-tunnel"
+  Search for CUI. There is one section where CUI is mentioned.
+  Follow the instructions for *returning* the CUI.
+
+## End *returning* side #############################################
+
+
+Testing your setup
+~~~~~~~~~~~~~~~~~~
+IdP side. 
+The easiest way is to use the eapol_test form wpa_supplicant 
+(ver 0.6.9 or later)  http://hostap.epitest.fi/wpa_supplicant/ 
+Just use:
+eapol_test -N 89 -N 32:s:identifier -a your_radius_server_ip -s secret -c config_file
+
+-N 89 causes adding to Access-Request attribute 89 (CUI) with a NULL value.
+-N 32:s:identifier causes adding attribute 32 (NAS-Identifier) of type
+String and value "identifier"
+
+In the output you should see the CUI value sent by your server.
+
