@@ -251,6 +251,7 @@ post-auth {
 	#  by adding the md5 hash created from a configurable local
 	#  salt (cui_hash_key) and the (inner) User-Name value
 	#  uncomment the line below if *returning* the CUI
+	#
 #       cui_postauth
 	# Note that we do NOT assign IP addresses here.
 	# If you try to assign IP addresses for EAP authentication types,

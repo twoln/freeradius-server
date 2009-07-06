@@ -49,7 +49,6 @@
 #	We don't indent the rest of this file, because doing so
 #	would make it harder to read.
 #
-#
 #  This defines the salt value for CUI. See also other CUI configration
 #  If *returning* the CUI, set cui_hash_key to some random string
 #  and uncomment the line below
