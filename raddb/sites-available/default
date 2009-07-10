@@ -75,12 +75,6 @@ authorize {
 	#  It also adds the %{Client-IP-Address} attribute to the request.
 	preprocess
 	#
-	#  cui_authorize adds the NULL CUI value to Access-Request
-	#  thus making it a Chargeable-User-Identity request
-	#  uncomment the line below if *requesting* the CUI
-#	cui_authorize
-	#
-	#
 	#  If you want to have a log of authentication requests,
 	#  un-comment the following line, and the 'detail auth_log'
 	#  section, above.
@@ -499,6 +493,12 @@ post-auth {
 #
 pre-proxy {
 #	attr_rewrite
+	#
+	#  cui_pre-proxy adds the NULL CUI value to Access-Request
+	#  thus making it a Chargeable-User-Identity request
+	#  uncomment the line below if *requesting* the CUI
+#	cui_pre-proxy
+	#
 
 	#  Uncomment the following line if you want to change attributes
 	#  as defined in the preproxy_users file.
