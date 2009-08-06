@@ -39,6 +39,7 @@
 #	authenticate users.
 #
 ######################################################################
+
 #
 #	In 1.x, the "authorize", etc. sections were global in
 #	radiusd.conf.  As of 2.0, they SHOULD be in a server section.
@@ -49,7 +50,9 @@
 #	We don't indent the rest of this file, because doing so
 #	would make it harder to read.
 #
-#  This defines the salt value for CUI. See also other CUI configration
+
+#  This defines the salt value for CUI to be used when generating
+#  the CUI attribute value. See also other CUI configration.
 #  If *returning* the CUI, set cui_hash_key to some random string
 #  and uncomment the line below
 #	cui_hash_key = "secret value"
@@ -71,7 +74,10 @@ authorize {
 	#
 	#  It takes care of processing the 'raddb/hints' and the
 	#  'raddb/huntgroups' files.
+	#
+	#  It also adds the %{Client-IP-Address} attribute to the request.
 	preprocess
+
 	#
 	#  If you want to have a log of authentication requests,
 	#  un-comment the following line, and the 'detail auth_log'
@@ -121,6 +127,7 @@ authorize {
 	suffix
 #	ntdomain
 
+	#
 	#  This module takes care of EAP-MD5, EAP-TLS, and EAP-LEAP
 	#  authentication.
 	#
@@ -287,6 +294,22 @@ authenticate {
 	#
 	#  Allow EAP authentication.
 	eap
+
+	#
+	#  The older configurations sent a number of attributes in
+	#  Access-Challenge packets, which wasn't strictly correct.
+	#  If you want to filter out these attributes, uncomment
+	#  the following lines.
+	#
+#	Auth-Type eap {
+#		eap {
+#			handled = 1  
+#		}
+#		if (handled && (Response-Packet-Type == Access-Challenge)) {
+#			attr_filter.access_challenge.post-auth
+#			handled  # override the "updated" code from attr_filter
+#		}
+#	}
 }
 
 
@@ -321,9 +344,9 @@ preacct {
 #  Accounting.  Log the accounting data.
 #
 accounting {
-	#  cui_accounting reads the record form the temporary database,
-	#  selects the corresponding CUI value, as set cui_updatedb
-	#  and adds the CUI attribute to the accounting request
+	#
+	#  Update accounting packet by adding the CUI attribute
+	#  recorded from the correstponding Access-Accept
 	#  uncomment the line below if *requesting* the CUI
 #	cui_accounting
 	#
@@ -392,18 +415,15 @@ session {
 #  Once we KNOW that the user has been authenticated, there are
 #  additional steps we can take.
 post-auth {
-	#  cui_postauth reacts to the Chargeable-User-Identity request
-	#  by adding the md5 hash created from a configurable local
-	#  salt (cui_hash_key) and the (inner) User-Name value
-	#  uncomment the line below if *returning* the CUI
+	#
+	#  Create the CUI value and add the attribut to Access-Accept.
+	#  Uncomment the line below if *returning* the CUI.
 #	cui_postauth
 	#  
-	#  cui_updatedb updates the temporary database adding
-	#  the record containing the received CUI value to be later
-	#  used in accounting
-	#  uncomment the line below if *requesting* the CUI
+	#  Update the CUI database for later use in accounting.
+	#  Uncomment the line below if *requesting* the CUI.
 #	cui_updatedb
-	#
+	#  
 	#  Get an address from the IP Pool.
 #	main_pool
 
@@ -492,8 +512,8 @@ post-auth {
 pre-proxy {
 #	attr_rewrite
 	#
-	#  cui_pre-proxy adds the NULL CUI value to Access-Request
-	#  thus making it a Chargeable-User-Identity request
+	#  The client requests the CUI by sending a CUI attribute
+	#  containing one zero byte.
 	#  uncomment the line below if *requesting* the CUI
 #	cui_pre-proxy
 	#
