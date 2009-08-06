@@ -247,12 +247,11 @@ session {
 #  Once we KNOW that the user has been authenticated, there are
 #  additional steps we can take.
 post-auth {
-	#  cui_postauth reacts to the Chargeable-User-Identity request
-	#  by adding the md5 hash created from a configurable local
-	#  salt (cui_hash_key) and the (inner) User-Name value
-	#  uncomment the line below if *returning* the CUI
 	#
-#       cui_postauth
+	#  Create the CUI value and add the attribut to Access-Accept.
+	#  Uncomment the line below if *returning* the CUI.
+#	cui_postauth
+	#
 	# Note that we do NOT assign IP addresses here.
 	# If you try to assign IP addresses for EAP authentication types,
 	# it WILL NOT WORK.  You MUST use DHCP.
