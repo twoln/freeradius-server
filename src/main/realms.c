@@ -303,6 +303,8 @@ static CONF_PARSER home_server_config[] = {
 
 	{ "response_window", PW_TYPE_INTEGER,
 	  offsetof(home_server,response_window), NULL,   "30" },
+	{ "no_response_fail", PW_TYPE_BOOLEAN,
+	  offsetof(home_server,no_response_fail), NULL,   NULL },
 	{ "max_outstanding", PW_TYPE_INTEGER,
 	  offsetof(home_server,max_outstanding), NULL,   "65536" },
 	{ "require_message_authenticator",  PW_TYPE_BOOLEAN,
@@ -1564,11 +1566,20 @@ static int realm_add(realm_config_t *rc, CONF_SECTION *cs)
 }
 
 #ifdef WITH_COA
-static int pool_peek_type(CONF_SECTION *cs)
+static const FR_NAME_NUMBER home_server_types[] = {
+	{ "auth", HOME_TYPE_AUTH },
+	{ "auth+acct", HOME_TYPE_AUTH },
+	{ "acct", HOME_TYPE_ACCT },
+	{ "coa", HOME_TYPE_COA },
+	{ NULL, 0 }
+};
+
+static int pool_peek_type(CONF_SECTION *config, CONF_SECTION *cs)
 {
-	const char *name;
+	int home;
+	const char *name, *type;
 	CONF_PAIR *cp;
-	home_server *home;
+	CONF_SECTION *server_cs;
 
 	cp = cf_pair_find(cs, "home_server");
 	if (!cp) {
@@ -1582,13 +1593,31 @@ static int pool_peek_type(CONF_SECTION *cs)
 		return HOME_TYPE_INVALID;
 	}
 
-	home = home_server_byname(name);
-	if (!home) {
+	server_cs = cf_section_sub_find_name2(config, "home_server", name);
+	if (!server_cs) {
 		cf_log_err(cf_pairtoitem(cp), "home_server \"%s\" does not exist", name);
 		return HOME_TYPE_INVALID;
 	}
 
-	return home->type;
+	cp = cf_pair_find(server_cs, "type");
+	if (!cp) {
+		cf_log_err(cf_sectiontoitem(server_cs), "home_server %s does not contain a \"type\" entry", name);
+		return HOME_TYPE_INVALID;
+	}
+
+	type = cf_pair_value(cp);
+	if (!type) {
+		cf_log_err(cf_sectiontoitem(server_cs), "home_server %s contains an empty \"type\" entry", name);
+		return HOME_TYPE_INVALID;
+	}
+
+	home = fr_str2int(home_server_types, type, HOME_TYPE_INVALID);
+	if (home == HOME_TYPE_INVALID) {
+		cf_log_err(cf_sectiontoitem(server_cs), "home_server %s contains an invalid \"type\" entry of value \"%s\"", name, type);
+		return HOME_TYPE_INVALID;
+	}
+
+	return home;		/* 'cause we miss it so much */
 }
 #endif
 
@@ -1669,9 +1698,12 @@ int realms_init(CONF_SECTION *config)
 	     cs = cf_subsection_find_next(config, cs, "home_server_pool")) {
 		int type;
 
+		/*
+		 *	Pool was already loaded.
+		 */
 		if (cf_data_find(cs, "home_server_pool")) continue;
 
-		type = pool_peek_type(cs);
+		type = pool_peek_type(config, cs);
 		if (type == HOME_TYPE_INVALID) return 0;
 
 		if (!server_pool_add(rc, cs, type, TRUE)) {
@@ -1823,6 +1855,7 @@ home_server *home_server_ldb(const char *realmname,
 	int		start;
 	int		count;
 	home_server	*found = NULL;
+	home_server	*zombie = NULL;
 	VALUE_PAIR	*vp;
 
 	/*
@@ -1907,9 +1940,9 @@ home_server *home_server_ldb(const char *realmname,
 		if (!home) continue;
 
 		/*
-		 *	Skip zombie && dead home servers.
+		 *	Skip dead home servers.
 		 */
-		if (home->state != HOME_STATE_ALIVE) {
+		if (home->state == HOME_STATE_IS_DEAD) {
 			continue;
 		}
 
@@ -1932,6 +1965,16 @@ home_server *home_server_ldb(const char *realmname,
 			continue;
 		}
 #endif
+
+		/*
+		 *	It's zombie, so we remember the first zombie
+		 *	we find, but we don't mark it as a "live"
+		 *	server.
+		 */
+		if (home->state == HOME_STATE_ZOMBIE) {
+			if (!zombie) zombie = home;
+			continue;
+		}
 
 		/*
 		 *	We've found the first "live" one.  Use that.
@@ -1983,6 +2026,15 @@ home_server *home_server_ldb(const char *realmname,
 			found = home;
 		}
 	} /* loop over the home servers */
+
+	/*
+	 *	We have no live servers, BUT we have a zombie.  Use
+	 *	the zombie as a last resort.
+	 */
+	if (!found && zombie) {
+		found = zombie;
+		zombie = NULL;
+	}
 
 	/*
 	 *	There's a fallback if they're all dead.

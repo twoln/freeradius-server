@@ -71,8 +71,6 @@ authorize {
 	#
 	#  It takes care of processing the 'raddb/hints' and the
 	#  'raddb/huntgroups' files.
-	#
-	#  It also adds the %{Client-IP-Address} attribute to the request.
 	preprocess
 	#
 	#  If you want to have a log of authentication requests,

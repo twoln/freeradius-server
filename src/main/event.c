@@ -344,7 +344,6 @@ static int insert_into_proxy_hash(REQUEST *request, int retransmit)
 	 */
 	if (request->home_server) {
 		request->home_server->currently_outstanding++;
-		request->home_server->stats.total_requests++;
 	}
 
 	if (retransmit) {
@@ -953,6 +952,8 @@ static int setup_post_proxy_fail(REQUEST *request)
 	DICT_VALUE *dval = NULL;
 	VALUE_PAIR *vp;
 
+	request->child_state = REQUEST_RUNNING;
+
 	if (request->packet->code == PW_AUTHENTICATION_REQUEST) {
 		dval = dict_valbyname(PW_POST_PROXY_TYPE, "Fail-Authentication");
 
@@ -1018,7 +1019,6 @@ static void post_proxy_fail_handler(REQUEST *request)
 	 *	to do next.
 	 */
 	if (!setup_post_proxy_fail(request)) {
-		request->child_state = REQUEST_RUNNING;
 		request_post_handler(request);
 
 	} else {
@@ -1077,18 +1077,26 @@ static void no_response_to_proxied_request(void *ctx)
 		return;
 	}
 
-	radlog(L_ERR, "Rejecting request %d due to lack of any response from home server %s port %d",
-	       request->number,
-	       inet_ntop(request->proxy->dst_ipaddr.af,
-			 &request->proxy->dst_ipaddr.ipaddr,
-			 buffer, sizeof(buffer)),
-	       request->proxy->dst_port);
-
 	check_for_zombie_home_server(request);
 
 	home = request->home_server;
 
-	post_proxy_fail_handler(request);
+	/*
+	 *	The default as of 2.1.7 is to allow requests to
+	 *	fail-over to a backup home server when this one does
+	 *	not respond.  The old behavior can be configured as
+	 *	well.
+	 */
+	if (home->no_response_fail) {
+		radlog(L_ERR, "Rejecting request %d due to lack of any response from home server %s port %d",
+		       request->number,
+		       inet_ntop(request->proxy->dst_ipaddr.af,
+				 &request->proxy->dst_ipaddr.ipaddr,
+				 buffer, sizeof(buffer)),
+		       request->proxy->dst_port);
+
+		post_proxy_fail_handler(request);
+	}
 
 	/*
 	 *	Don't touch request due to race conditions
