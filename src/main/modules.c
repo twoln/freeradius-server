@@ -94,41 +94,83 @@ static const section_type_value_t section_type_value[RLM_COMPONENT_COUNT] = {
 
 
 #ifdef WITHOUT_LIBLTDL
+#ifdef WITH_DLOPEN
+#include <dlfcn.h>
+
+#ifndef RTLD_NOW
+#define RTLD_NOW (0)
+#endif
+#ifndef RTLD_LOCAL
+#define RTLD_LOCAL (0)
+#endif
+
+lt_dlhandle lt_dlopenext(const char *name)
+{
+	char buffer[256];
+
+	strlcpy(buffer, name, sizeof(buffer));
+
+	/*
+	 *	FIXME: Make this configurable...
+	 */
+	strlcat(buffer, ".so", sizeof(buffer));
+
+	return dlopen(buffer, RTLD_NOW | RTLD_LOCAL);
+}
+
+void *lt_dlsym(lt_dlhandle handle, UNUSED const char *symbol)
+{
+	return dlsym(handle, symbol);
+}
+
+int lt_dlclose(lt_dlhandle handle)
+{
+	return dlclose(handle);
+}
+
+const char *lt_dlerror(void)
+{
+	return dlerror();
+}
+
+
+#else  /* without dlopen */
 typedef struct lt_dlmodule_t {
   const char	*name;
   void		*ref;
 } lt_dlmodule_t;
 
+typedef struct eap_type_t EAP_TYPE;
+typedef struct rlm_sql_module_t rlm_sql_module_t;
+
 /*
- *	Define modules here.
+ *	FIXME: Write hackery to auto-generate this data.
+ *	We only need to do this on systems that don't have dlopen.
  */
 extern module_t rlm_pap;
 extern module_t rlm_chap;
 extern module_t rlm_eap;
+extern module_t rlm_sql;
+/* and so on ... */
 
-/*
- *	EAP structures are defined elsewhere.
- */
-typedef struct eap_type_t EAP_TYPE;
-
-/*
- *	And so on for other EAP types.
- */
 extern EAP_TYPE rlm_eap_md5;
+extern rlm_sql_module_t rlm_sql_mysql;
+/* and so on ... */
 
 static const lt_dlmodule_t lt_dlmodules[] = {
 	{ "rlm_pap", &rlm_pap },
 	{ "rlm_chap", &rlm_chap },
 	{ "rlm_eap", &rlm_eap },
+	/* and so on ... */
+
 	{ "rlm_eap_md5", &rlm_eap_md5 },
-	
-	/*
-	 *	Add other modules here.
-	 */
+	/* and so on ... */
+		
+	{ "rlm_sql_mysql", &rlm_sql_mysql },
+	/* and so on ... */
 		
 	{ NULL, NULL }
 };
-
 
 lt_dlhandle lt_dlopenext(const char *name)
 {
@@ -147,6 +189,18 @@ void *lt_dlsym(lt_dlhandle handle, UNUSED const char *symbol)
 {
 	return handle;
 }
+
+int lt_dlclose(lt_dlhandle handle)
+{
+	return 0;
+}
+
+const char *lt_dlerror(void)
+{
+	return "Unspecified error";
+}
+
+#endif	/* WITH_DLOPEN */
 #endif /* WITHOUT_LIBLTDL */
 
 static int virtual_server_idx(const char *name)
@@ -432,7 +486,7 @@ module_instance_t *find_module_instance(CONF_SECTION *modules,
 {
 	int check_config_safe = FALSE;
 	CONF_SECTION *cs;
-	const char *name1, *name2;
+	const char *name1;
 	module_instance_t *node, myNode;
 	char module_name[256];
 
@@ -618,6 +672,7 @@ int indexed_modcall(int comp, int idx, REQUEST *request)
 
 	if (idx == 0) {
 		list = server->mc[comp];
+		if (!list) RDEBUG2("  WARNING: Empty section.  Using default return values.");
 
 	} else {
 		indexed_modcallable *this;
@@ -865,6 +920,7 @@ static int load_byserver(CONF_SECTION *cs)
 	const char *name = cf_section_name2(cs);
 	rbtree_t *components;
 	virtual_server_t *server = NULL;
+	indexed_modcallable *c;
 
 	if (name) {
 		cf_log_info(cs, "server %s {", name);
@@ -966,7 +1022,6 @@ static int load_byserver(CONF_SECTION *cs)
 	flag = 0;
 	for (comp = 0; comp < RLM_COMPONENT_COUNT; ++comp) {
 		CONF_SECTION *subcs;
-		indexed_modcallable *c;
 
 		subcs = cf_section_sub_find(cs,
 					    section_type_value[comp].section);
@@ -1021,6 +1076,9 @@ static int load_byserver(CONF_SECTION *cs)
 						   RLM_COMPONENT_POST_AUTH) < 0) {
 				goto error;
 			}
+			c = lookup_by_index(components,
+					    RLM_COMPONENT_POST_AUTH, 0);
+			if (c) server->mc[RLM_COMPONENT_POST_AUTH] = c->modulelist;
 			flag = 1;
 		}
 
@@ -1029,19 +1087,14 @@ static int load_byserver(CONF_SECTION *cs)
 			const DICT_ATTR *dattr;
 
 			dattr = dict_attrbyname("DHCP-Message-Type");
-			if (!dattr) {
-				radlog(L_ERR, "No DHCP-Message-Type attribute");
-				goto error;
-			}
 
 			/*
 			 *	Handle each DHCP Message type separately.
 			 */
-			for (subcs = cf_subsection_find_next(cs, NULL,
-							     "dhcp");
-			     subcs != NULL;
-			     subcs = cf_subsection_find_next(cs, subcs,
-							     "dhcp")) {
+			if (dattr) for (subcs = cf_subsection_find_next(cs, NULL, "dhcp");
+					subcs != NULL;
+					subcs = cf_subsection_find_next(cs, subcs,
+									"dhcp")) {
 				const char *name2 = cf_section_name2(subcs);
 
 				DEBUG2(" Module: Checking dhcp %s {...} for more modules to load", name2);
@@ -1051,6 +1104,9 @@ static int load_byserver(CONF_SECTION *cs)
 							       RLM_COMPONENT_POST_AUTH)) {
 					goto error; /* FIXME: memleak? */
 				}
+				c = lookup_by_index(components,
+						    RLM_COMPONENT_POST_AUTH, 0);
+				if (c) server->mc[RLM_COMPONENT_POST_AUTH] = c->modulelist;
 				flag = 1;
 			}
 		}
@@ -1247,6 +1303,26 @@ int setup_modules(int reload, CONF_SECTION *config)
 	 *	If necessary, initialize libltdl.
 	 */
 	if (!reload) {
+		/*
+		 *	This line works around a completely
+		 *
+		 *		RIDICULOUS INSANE IDIOTIC
+		 *
+		 *	bug in libltdl on certain systems.  The "set
+		 *	preloaded symbols" macro below ends up
+		 *	referencing this name, but it isn't defined
+		 *	anywhere in the libltdl source.  As a result,
+		 *	any program STUPID enough to rely on libltdl
+		 *	fails to link, because the symbol isn't
+		 *	defined anywhere.
+		 *
+		 *	It's like libtool and libltdl are some kind
+		 *	of sick joke.
+		 */
+#ifdef IE_LIBTOOL_DIE
+#define lt__PROGRAM__LTX_preloaded_symbols lt_libltdl_LTX_preloaded_symbols
+#endif
+
 		/*
 		 *	Set the default list of preloaded symbols.
 		 *	This is used to initialize libltdl's list of

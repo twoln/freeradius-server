@@ -421,7 +421,7 @@ int dict_addvendor(const char *name, int value)
 	size_t length;
 	DICT_VENDOR *dv;
 
-	if (value >= 32767) {
+	if (value > 65535) {
 	       	fr_strerror_printf("dict_addvendor: Cannot handle vendor ID larger than 65535");
 		return -1;
 	}
@@ -1718,14 +1718,14 @@ int dict_init(const char *dir, const char *fn)
 /*
  *	Get an attribute by its numerical value.
  */
-DICT_ATTR *dict_attrbyvalue(int attr)
+DICT_ATTR *dict_attrbyvalue(unsigned int attr)
 {
 	DICT_ATTR dattr;
 
 	if ((attr > 0) && (attr < 256)) return dict_base_attrs[attr];
 
 	dattr.attr = attr;
-	dattr.vendor = VENDOR(attr) & 0x7fff;
+	dattr.vendor = VENDOR(attr);
 
 	return fr_hash_table_finddata(attributes_byvalue, &dattr);
 }
@@ -1749,7 +1749,7 @@ DICT_ATTR *dict_attrbyname(const char *name)
 /*
  *	Associate a value with an attribute and return it.
  */
-DICT_VALUE *dict_valbyattr(int attr, int value)
+DICT_VALUE *dict_valbyattr(unsigned int attr, int value)
 {
 	DICT_VALUE dval, *dv;
 
@@ -1774,7 +1774,7 @@ DICT_VALUE *dict_valbyattr(int attr, int value)
 /*
  *	Get a value by its name, keyed off of an attribute.
  */
-DICT_VALUE *dict_valbyname(int attr, const char *name)
+DICT_VALUE *dict_valbyname(unsigned int attr, const char *name)
 {
 	DICT_VALUE *my_dv, *dv;
 	uint32_t buffer[(sizeof(*my_dv) + DICT_VALUE_MAX_NAME_LEN + 3)/4];

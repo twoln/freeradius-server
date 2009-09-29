@@ -64,6 +64,9 @@ struct rad_listen_t {
 	int		fd;
 	const char	*server;
 	int		status;
+#ifdef WITH_TCP
+	int		count;
+#endif
 
 	const struct frs_module_t *frs;
 	rad_listen_recv_t recv;
@@ -124,6 +127,22 @@ typedef struct listen_socket_t {
 	int		port;
 #ifdef SO_BINDTODEVICE
 	const char	*interface;
+#endif
+
+	int		proto;
+
+#ifdef WITH_TCP
+	int		max_connections;
+	int		num_connections;
+	struct listen_socket_t *parent;
+
+	fr_ipaddr_t	src_ipaddr;
+	int		src_port;
+	RADCLIENT	*client; /* for server sockets */
+
+	fr_tcp_radius_t *tcp;	/* for RAD_LISTEN_PROXY */
+	home_server	*home;
+	RADIUS_PACKET   *packet; /* for reading partial packets */
 #endif
 	RADCLIENT_LIST	*clients;
 } listen_socket_t;

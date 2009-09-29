@@ -78,6 +78,7 @@ $INCLUDE dictionary.rfc4679
 $INCLUDE dictionary.rfc4818
 $INCLUDE dictionary.rfc4849
 $INCLUDE dictionary.rfc5176
+$INCLUDE dictionary.rfc5580
 
 #
 #	Include vendor dictionaries after the standard ones.
@@ -94,6 +95,7 @@ $INCLUDE dictionary.apc
 $INCLUDE dictionary.aruba
 $INCLUDE dictionary.azaire
 $INCLUDE dictionary.ascend
+$INCLUDE dictionary.ascend.illegal
 $INCLUDE dictionary.bay
 $INCLUDE dictionary.bintec
 $INCLUDE dictionary.cablelabs

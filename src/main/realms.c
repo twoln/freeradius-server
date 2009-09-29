@@ -148,6 +148,11 @@ static int home_server_addr_cmp(const void *one, const void *two)
 		return strcmp(a->server, b->server);
 	}
 
+#ifdef WITH_TCP
+	if (a->proto < b->proto) return -1;
+	if (a->proto > b->proto) return +1;
+#endif
+
 	if (a->port < b->port) return -1;
 	if (a->port > b->port) return +1;
 
@@ -274,12 +279,31 @@ void realms_free(void)
 
 
 #ifdef WITH_PROXY
+static CONF_PARSER limit_config[] = {
+	{ "max_connections", PW_TYPE_INTEGER,
+	  offsetof(home_server, max_connections), NULL,   "16" },
+
+	{ "max_requests", PW_TYPE_INTEGER,
+	  offsetof(home_server,max_requests), NULL,   "0" },
+
+	{ "lifetime", PW_TYPE_INTEGER,
+	  offsetof(home_server,lifetime), NULL,   "0" },
+
+	{ "idle_timeout", PW_TYPE_INTEGER,
+	  offsetof(home_server,idle_timeout), NULL,   "0" },
+
+	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+};
+
 static struct in_addr hs_ip4addr;
 static struct in6_addr hs_ip6addr;
 static char *hs_srcipaddr = NULL;
 static char *hs_type = NULL;
 static char *hs_check = NULL;
 static char *hs_virtual_server = NULL;
+#ifdef WITH_TCP
+static char *hs_proto = NULL;
+#endif
 
 static CONF_PARSER home_server_config[] = {
 	{ "ipaddr",  PW_TYPE_IPADDR,
@@ -294,6 +318,11 @@ static CONF_PARSER home_server_config[] = {
 
 	{ "type",  PW_TYPE_STRING_PTR,
 	  0, &hs_type, NULL },
+
+#ifdef WITH_TCP
+	{ "proto",  PW_TYPE_STRING_PTR,
+	  0, &hs_proto, NULL },
+#endif
 
 	{ "secret",  PW_TYPE_STRING_PTR,
 	  offsetof(home_server,secret), NULL,  NULL},
@@ -351,6 +380,8 @@ static CONF_PARSER home_server_config[] = {
 	  offsetof(home_server, coa_mrd), 0, Stringify(30) },
 #endif
 
+	{ "limit", PW_TYPE_SUBSECTION, 0, NULL, (const void *) limit_config },
+
 	{ NULL, -1, 0, NULL, NULL }		/* end the list */
 };
 
@@ -388,8 +419,7 @@ static int home_server_add(realm_config_t *rc, CONF_SECTION *cs, int pool_type)
 	memset(&hs_ip4addr, 0, sizeof(hs_ip4addr));
 	memset(&hs_ip6addr, 0, sizeof(hs_ip6addr));
 	if (cf_section_parse(cs, home, home_server_config) < 0) {
-		free(home);
-		return 0;
+		goto error;
 	}
 
 	/*
@@ -439,6 +469,10 @@ static int home_server_add(realm_config_t *rc, CONF_SECTION *cs, int pool_type)
 		hs_check = NULL;
 		free(hs_srcipaddr);
 		hs_srcipaddr = NULL;
+#ifdef WITH_TCP
+		free(hs_proto);
+		hs_proto = NULL;
+#endif
 		return 0;
 	}
 
@@ -542,22 +576,57 @@ static int home_server_add(realm_config_t *rc, CONF_SECTION *cs, int pool_type)
 		}
 	}
 
-	if ((home->ipaddr.af != AF_UNSPEC) && /* could be virtual server */
+	home->proto = IPPROTO_UDP;
+#ifdef WITH_TCP
+	if (hs_proto) {
+		if (strcmp(hs_proto, "udp") == 0) {
+			free(hs_proto);
+			hs_proto = NULL;
+			
+		} else if (strcmp(hs_proto, "tcp") == 0) {
+			free(hs_proto);
+			hs_proto = NULL;
+			home->proto = IPPROTO_TCP;
+			
+		} else {
+			cf_log_err(cf_sectiontoitem(cs),
+				   "Unknown proto \"%s\".", hs_proto);
+			goto error;
+		}
+	}
+#endif
+
+	if (!home->server &&
 	    rbtree_finddata(home_servers_byaddr, home)) {
 		cf_log_err(cf_sectiontoitem(cs), "Duplicate home server");
 		goto error;
 	}
 
 	/*
-	 *	Look up the name using the *same* address family as
-	 *	for the home server.
+	 *	If the home is a virtual server, don't look up source IP.
 	 */
-	if (hs_srcipaddr && (home->ipaddr.af != AF_UNSPEC)) {
-		if (ip_hton(hs_srcipaddr, home->ipaddr.af, &home->src_ipaddr) < 0) {
-			cf_log_err(cf_sectiontoitem(cs), "Failed parsing src_ipaddr");
-			goto error;
+	if (!home->server) {
+		rad_assert(home->ipaddr.af != AF_UNSPEC);
+
+		/*
+		 *	Otherwise look up the source IP using the same
+		 *	address family as the destination IP.
+		 */
+		if (hs_srcipaddr) {
+			if (ip_hton(hs_srcipaddr, home->ipaddr.af, &home->src_ipaddr) < 0) {
+				cf_log_err(cf_sectiontoitem(cs), "Failed parsing src_ipaddr");
+				goto error;
+			}
+			
+		} else {
+			/*
+			 *	Source isn't specified: Source is
+			 *	the correct address family, but all zeros.
+			 */
+			home->src_ipaddr.af = home->ipaddr.af;
 		}
 	}
+
 	free(hs_srcipaddr);
 	hs_srcipaddr = NULL;
 
@@ -568,7 +637,7 @@ static int home_server_add(realm_config_t *rc, CONF_SECTION *cs, int pool_type)
 		goto error;
 	}
 
-	if ((home->ipaddr.af != AF_UNSPEC) && /* could be virtual server */
+	if (!home->server &&
 	    !rbtree_insert(home_servers_byaddr, home)) {
 		rbtree_deletebydata(home_servers_byname, home);
 		cf_log_err(cf_sectiontoitem(cs),
@@ -630,6 +699,22 @@ static int home_server_add(realm_config_t *rc, CONF_SECTION *cs, int pool_type)
 	if (home->coa_mrd > 60 ) home->coa_mrd = 60;
 #endif
 
+	if (home->max_connections > 1024) home->max_connections = 1024;
+
+#ifdef WITH_TCP
+	/*
+	 *	UDP sockets can't be connection limited.
+	 */
+	if (home->proto != IPPROTO_TCP) home->max_connections = 0;
+#endif
+
+	if ((home->idle_timeout > 0) && (home->idle_timeout < 5))
+		home->idle_timeout = 5;
+	if ((home->lifetime > 0) && (home->lifetime < 5))
+		home->lifetime = 5;
+	if ((home->lifetime > 0) && (home->idle_timeout > home->lifetime))
+		home->idle_timeout = 0;
+
 	if (dual) {
 		home_server *home2 = rad_malloc(sizeof(*home2));
 
@@ -648,7 +733,7 @@ static int home_server_add(realm_config_t *rc, CONF_SECTION *cs, int pool_type)
 			return 0;
 		}
 		
-		if ((home->ipaddr.af != AF_UNSPEC) &&
+		if (!home->server &&
 		    !rbtree_insert(home_servers_byaddr, home2)) {
 			rbtree_deletebydata(home_servers_byname, home2);
 			cf_log_err(cf_sectiontoitem(cs),
@@ -662,7 +747,7 @@ static int home_server_add(realm_config_t *rc, CONF_SECTION *cs, int pool_type)
 		home2->number = home_server_max_number++;
 		if (!rbtree_insert(home_servers_bynumber, home2)) {
 			rbtree_deletebydata(home_servers_byname, home2);
-			if (home2->ipaddr.af != AF_UNSPEC) {
+			if (!home2->server) {
 				rbtree_deletebydata(home_servers_byname, home2);
 			}
 			cf_log_err(cf_sectiontoitem(cs),
@@ -732,6 +817,9 @@ static int pool_check_home_server(realm_config_t *rc, CONF_PAIR *cp,
 	
 	home = rbtree_finddata(home_servers_byname, &myhome);
 	if (!home) {
+		cf_log_err(cf_pairtoitem(cp),
+			   "Internal error %d adding home server \"%s\".",
+			   __LINE__, name);
 		return 0;
 	}
 
@@ -776,7 +864,6 @@ static int server_pool_add(realm_config_t *rc,
 
 		if (!pool_check_home_server(rc, cp, cf_pair_value(cp),
 					    server_type, &home)) {
-					    
 			return 0;
 		}
 	}
@@ -1082,6 +1169,7 @@ static int old_server_add(realm_config_t *rc, CONF_SECTION *cs,
 				free(q);
 				return 0;
 			}
+			home->src_ipaddr.af = home->ipaddr.af;
 		} else {
 			home->ipaddr.af = AF_UNSPEC;
 			home->server = server;
@@ -2091,6 +2179,8 @@ home_server *home_server_ldb(const char *realmname,
 		/*
 		 *	Update the various fields as appropriate.
 		 */
+		request->proxy->src_ipaddr = found->src_ipaddr;
+		request->proxy->src_port = 0;
 		request->proxy->dst_ipaddr = found->ipaddr;
 		request->proxy->dst_port = found->port;
 		request->home_server = found;
@@ -2179,11 +2269,12 @@ home_server *home_server_find(fr_ipaddr_t *ipaddr, int port)
 }
 
 #ifdef WITH_COA
-home_server *home_server_byname(const char *name)
+home_server *home_server_byname(const char *name, int type)
 {
 	home_server myhome;
 
 	memset(&myhome, 0, sizeof(myhome));
+	myhome.type = type;
 	myhome.name = name;
 
 	return rbtree_finddata(home_servers_byname, &myhome);
@@ -2213,55 +2304,4 @@ home_pool_t *home_pool_byname(const char *name, int type)
 	return rbtree_finddata(home_pools_byname, &mypool);
 }
 
-#endif
-
-#ifdef WITH_PROXY
-static int home_server_create_callback(void *ctx, void *data)
-{
-	rad_listen_t *head = ctx;
-	home_server *home = data;
-	rad_listen_t *this;
-
-	/*
-	 *	If there WAS a src address defined, ensure that a
-	 *	proxy listener has been defined.
-	 */
-	if (home->src_ipaddr.af != AF_UNSPEC) {
-		this = proxy_new_listener(&home->src_ipaddr, TRUE);
-
-		/*
-		 *	Failed to create it: Die
-		 */
-		if (!this) return 1;
-
-		this->next = head->next;
-		head->next = this;
-	}
-
-	return 0;
-}
-
-/*
- *	Taking a void* here solves some header issues.
- */
-int home_server_create_listeners(void *ctx)
-{
-	rad_listen_t *head = ctx;
-
-	if (!home_servers_byaddr) return 0;
-
-	rad_assert(head != NULL);
-
-	/*
-	 *	Add the listeners to the TAIL of the list.
-	 */
-	while (head->next) head = head->next;
-
-	if (rbtree_walk(home_servers_byaddr, InOrder,
-			home_server_create_callback, head) != 0) {
-		return -1;
-	}
-
-	return 0;
-}
 #endif

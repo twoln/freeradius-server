@@ -132,6 +132,12 @@ typedef struct radclient {
 #endif
 #endif
 
+	int			proto;
+#ifdef WITH_TCP
+	int			max_connections;
+	int			num_connections;
+#endif
+
 #ifdef WITH_DYNAMIC_CLIENTS
 	int			lifetime;
 	int			dynamic; /* was dynamically defined */
@@ -438,7 +444,8 @@ void		client_delete(RADCLIENT_LIST *clients, RADCLIENT *client);
 RADCLIENT	*client_create(RADCLIENT_LIST *clients, REQUEST *request);
 #endif
 RADCLIENT	*client_find(const RADCLIENT_LIST *clients,
-			     const fr_ipaddr_t *ipaddr);
+			     const fr_ipaddr_t *ipaddr, int proto);
+
 RADCLIENT	*client_findbynumber(const RADCLIENT_LIST *clients,
 				     int number);
 RADCLIENT	*client_find_old(const fr_ipaddr_t *ipaddr);
@@ -546,10 +553,13 @@ void fr_suid_down_permanent(void);
 /* listen.c */
 void listen_free(rad_listen_t **head);
 int listen_init(CONF_SECTION *cs, rad_listen_t **head);
-rad_listen_t *proxy_new_listener(fr_ipaddr_t *ipaddr, int exists);
+int proxy_new_listener(home_server *home, int src_port);
 RADCLIENT *client_listener_find(const rad_listen_t *listener,
 				const fr_ipaddr_t *ipaddr, int src_port);
+
+#ifdef WITH_STATS
 rad_listen_t *listener_find_byipaddr(const fr_ipaddr_t *ipaddr, int port);
+#endif
 
 /* event.c */
 int radius_event_init(CONF_SECTION *cs, int spawn_flag);

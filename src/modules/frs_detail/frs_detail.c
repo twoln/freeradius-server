@@ -65,7 +65,6 @@ typedef struct listen_detail_t {
 	time_t		timestamp;
 	fr_ipaddr_t	client_ip;
 	int		load_factor; /* 1..100 */
-	int		overload;
 	int		signal;
 	int		poll_interval;
 	int		retry_interval;
@@ -258,11 +257,6 @@ int detail_send(rad_listen_t *listener, REQUEST *request)
 		return 0;
 	}
 
-	if (data->overload) {
-		data->delay_time = 0;
-		goto next;
-	}
-
 	/*
 	 *	We call gettimeofday a lot.  But it should be OK,
 	 *	because there's nothing else to do.
@@ -322,7 +316,6 @@ int detail_send(rad_listen_t *listener, REQUEST *request)
 	 *	rtt / (rtt + delay) = load_factor / 100
 	 */
 	data->delay_time = (data->srtt * (100 - data->load_factor)) / (data->load_factor);
-	if (data->delay_time == 0) data->delay_time = USEC / 10;
 
 	/*
 	 *	Cap delay at 4 packets/s.  If the end system can't
@@ -474,7 +467,7 @@ static int detail_open(rad_listen_t *this)
 int detail_recv(rad_listen_t *listener,
 		RAD_REQUEST_FUNP *pfun, REQUEST **prequest)
 {
-	char		key[256], value[1024];
+	char		key[256], op[8], value[1024];
 	VALUE_PAIR	*vp, **tail;
 	RADIUS_PACKET	*packet;
 	char		buffer[2048];
@@ -667,9 +660,16 @@ int detail_recv(rad_listen_t *listener,
 		 *
 		 *	FIXME: print an error for badly formatted attributes?
 		 */
-		if (sscanf(buffer, "%255s = %1023s", key, value) != 2) {
+		if (sscanf(buffer, "%255s %8s %1023s", key, op, value) != 3) {
+			DEBUG2("WARNING: Skipping badly formatted line %s",
+			       buffer);
 			continue;
 		}
+
+		/*
+		 *	Should be =, :=, +=, ...
+		 */
+		if (!strchr(op, '=')) continue;
 
 		/*
 		 *	Skip non-protocol attributes.
@@ -936,8 +936,6 @@ static const CONF_PARSER detail_config[] = {
 	  offsetof(listen_detail_t, poll_interval), NULL, Stringify(1)},
 	{ "retry_interval",   PW_TYPE_INTEGER,
 	  offsetof(listen_detail_t, retry_interval), NULL, Stringify(30)},
-	{ "overload",   PW_TYPE_BOOLEAN,
-	  offsetof(listen_detail_t, overload), NULL, NULL},
 
 	{ NULL, -1, 0, NULL, NULL }		/* end the list */
 };
