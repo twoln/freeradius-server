@@ -108,6 +108,7 @@ static pthread_mutex_t	fd_mutex;
 static fr_packet_list_t *proxy_list = NULL;
 static void remove_from_proxy_hash(REQUEST *request);
 
+static void check_for_zombie_home_server(REQUEST *request);
 #else
 #define remove_from_proxy_hash(foo)
 #endif
@@ -683,6 +684,8 @@ static void no_response_to_ping(void *ctx)
 			 buffer, sizeof(buffer)),
 	       request->proxy->dst_port);
 
+	check_for_zombie_home_server(request);
+
 	wait_for_proxy_id_to_expire(request);
 }
 
@@ -1107,6 +1110,12 @@ static void no_response_to_proxied_request(void *ctx)
 		       request->proxy->dst_port);
 
 		post_proxy_fail_handler(request);
+	} else {
+		/*
+		 *	Ensure that there is a callback for the request.
+		 */
+		request->child_state = REQUEST_RUNNING;
+		wait_a_bit(request);
 	}
 
 	/*

@@ -54,6 +54,19 @@ typedef enum detail_state_t {
   STATE_REPLIED
 } detail_state_t;
 
+static FR_NAME_NUMBER state_names[] = {
+	{ "unopened", STATE_UNOPENED },
+	{ "unlocked", STATE_UNLOCKED },
+	{ "header", STATE_HEADER },
+	{ "reading", STATE_READING },
+	{ "queued", STATE_QUEUED },
+	{ "running", STATE_RUNNING },
+	{ "no-reply", STATE_NO_REPLY },
+	{ "replied", STATE_REPLIED },
+
+	{ NULL, 0 }
+};
+
 typedef struct listen_detail_t {
 	fr_event_t	*ev;	/* has to be first entry (ugh) */
 	int		delay_time;
@@ -250,7 +263,7 @@ int detail_send(rad_listen_t *listener, REQUEST *request)
 		data->signal = 1;
 		data->state = STATE_NO_REPLY;
 
-		RDEBUG("No response configured for request %d.  Will retry in %d seconds",
+		RDEBUG("Detail - No response configured for request %d.  Will retry in %d seconds",
 		       request->number, data->retry_interval);
 
 		radius_signal_self(RADIUS_SIGNAL_SELF_DETAIL);
@@ -323,7 +336,6 @@ int detail_send(rad_listen_t *listener, REQUEST *request)
 	 */
 	if (data->delay_time > (USEC / 4)) data->delay_time= USEC / 4;
 	
-next:
 	RDEBUG3("Received response for request %d.  Will read the next packet in %d seconds",
 		request->number, data->delay_time / USEC);
 	
@@ -379,7 +391,8 @@ static int detail_open(rad_listen_t *this)
 		 */
 		if (stat(filename, &st) < 0) {
 #ifdef HAVE_GLOB_H
-			int i, found;
+			unsigned int i;
+			int found;
 			time_t chtime;
 			glob_t files;
 
@@ -418,7 +431,7 @@ static int detail_open(rad_listen_t *this)
 		 */
 		this->fd = open(filename, O_RDWR);
 		if (this->fd < 0) {
-			radlog(L_ERR, "Failed to open %s: %s",
+			radlog(L_ERR, "Detail - Failed to open %s: %s",
 			       filename, strerror(errno));
 			if (filename != data->filename) free(filename);
 			return 0;
@@ -427,7 +440,7 @@ static int detail_open(rad_listen_t *this)
 		/*
 		 *	Rename detail to detail.work
 		 */
-		DEBUG("detail_recv: Renaming %s -> %s", filename, data->filename_work);
+		DEBUG("Detail - Renaming %s -> %s", filename, data->filename_work);
 		if (rename(filename, data->filename_work) < 0) {
 			if (filename != data->filename) free(filename);
 			close(this->fd);
@@ -559,6 +572,8 @@ int detail_recv(rad_listen_t *listener,
 			 */
 			if (feof(data->fp)) {
 			cleanup:
+				DEBUG("Detail - unlinking %s",
+				      data->filename_work);
 				unlink(data->filename_work);
 				if (data->fp) fclose(data->fp);
 				data->fp = NULL;
@@ -907,10 +922,22 @@ int detail_encode(rad_listen_t *this, UNUSED REQUEST *request)
 		 */
 		delay += (USEC * 3) / 4;
 		delay += fr_rand() % (USEC / 2);
+
+		DEBUG2("Detail listener %s state %s signalled %d waiting %d.%06d sec",
+		       data->filename,
+		       fr_int2str(state_names, data->state, "?"), data->signal,
+		       (delay / USEC), delay % USEC);
+
 		return delay;
 	}
 
 	data->signal = 0;
+	
+	DEBUG2("Detail listener %s state %s signalled %d waiting %d.%06d sec",
+	       data->filename, fr_int2str(state_names, data->state, "?"),
+	       data->signal,
+	       data->delay_time / USEC,
+	       data->delay_time % USEC);
 
 	return data->delay_time;
 }
