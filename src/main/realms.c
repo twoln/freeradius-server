@@ -1125,6 +1125,7 @@ static int old_server_add(realm_config_t *rc, CONF_SECTION *cs,
 		home->type = type;
 		home->secret = secret;
 		home->cs = cs;
+		home->proto = IPPROTO_UDP;
 
 		p = strchr(name, ':');
 		if (!p) {
@@ -2067,7 +2068,7 @@ home_server *home_server_ldb(const char *realmname,
 		/*
 		 *	We've found the first "live" one.  Use that.
 		 */
-		if (pool->type == HOME_POOL_FAIL_OVER) {
+		if (pool->type != HOME_POOL_LOAD_BALANCE) {
 			found = home;
 			break;
 		}

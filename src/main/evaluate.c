@@ -774,8 +774,7 @@ int radius_evaluate_condition(REQUEST *request, int modreturn, int depth,
 		 */
 		token = gettoken(&p, comp, sizeof(comp));
 		if ((token < T_OP_NE) || (token > T_OP_CMP_EQ) ||
-		    (token == T_OP_CMP_TRUE) ||
-		    (token == T_OP_CMP_FALSE)) {
+		    (token == T_OP_CMP_TRUE)) {
 			radlog(L_ERR, "Expected comparison at: %s", comp);
 			return FALSE;
 		}
@@ -1316,6 +1315,12 @@ int radius_update_attrlist(REQUEST *request, CONF_SECTION *cs,
 		}
 
 		cp = cf_itemtopair(ci);
+
+#ifndef NDEBUG
+		if (debug_flag && radius_find_compare(vp->attribute)) {
+			DEBUG("WARNING: You are modifying the value of virtual attribute %s.  This is not supported.", vp->name);
+		}
+#endif
 
 		/*
 		 *	The VP && CF lists should be in sync.  If they're

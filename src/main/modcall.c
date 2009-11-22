@@ -239,6 +239,11 @@ static const char * const comp2str[] = {
 	"pre-proxy",
 	"post-proxy",
 	"post-auth"
+#ifdef WITH_COA
+	,
+	"recv-coa",
+	"send-coa"
+#endif
 };
 
 #ifdef HAVE_PTHREAD_H
@@ -1356,6 +1361,7 @@ static modcallable *do_compile_modupdate(modcallable *parent,
 		    (vp->operator != T_OP_SUB) &&
 		    (vp->operator != T_OP_LE) &&
 		    (vp->operator != T_OP_GE) &&
+		    (vp->operator != T_OP_CMP_FALSE) &&
 		    (vp->operator != T_OP_SET)) {
 			pairfree(&head);
 			pairfree(&vp);
