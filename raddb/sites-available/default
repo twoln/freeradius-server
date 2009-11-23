@@ -51,6 +51,13 @@
 #	would make it harder to read.
 #
 
+#  This defines the salt value for CUI to be used when generating
+#  the CUI attribute value. See also other CUI configration.
+#  If *returning* the CUI, set cui_hash_key to some random string
+#  and uncomment the line below
+#	cui_hash_key = "secret value"
+
+
 #  Authorization. First preprocess (hints and huntgroups files),
 #  then realms, and finally look in the "users" file.
 #
@@ -336,6 +343,12 @@ preacct {
 #
 accounting {
 	#
+	#  Update accounting packet by adding the CUI attribute
+	#  recorded from the correstponding Access-Accept
+	#  uncomment the line below if *requesting* the CUI
+#	cui_accounting
+
+	#
 	#  Create a 'detail'ed log of the packets.
 	#  Note that accounting requests which are proxied
 	#  are also logged in the detail file.
@@ -401,6 +414,15 @@ session {
 #  Once we KNOW that the user has been authenticated, there are
 #  additional steps we can take.
 post-auth {
+	#
+	#  Create the CUI value and add the attribut to Access-Accept.
+	#  Uncomment the line below if *returning* the CUI.
+#	cui_postauth
+	#  
+	#  Update the CUI database for later use in accounting.
+	#  Uncomment the line below if *requesting* the CUI.
+#	cui_updatedb
+	# 
 	#  Get an address from the IP Pool.
 #	main_pool
 
@@ -488,6 +510,13 @@ post-auth {
 #
 pre-proxy {
 #	attr_rewrite
+	#
+	#  The client requests the CUI by sending a CUI attribute
+	#  containing one zero byte.
+	#  uncomment the line below if *requesting* the CUI
+#	cui_pre-proxy
+	#
+
 
 	#  Uncomment the following line if you want to change attributes
 	#  as defined in the preproxy_users file.
